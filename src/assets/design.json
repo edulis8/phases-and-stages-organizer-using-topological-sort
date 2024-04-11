@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Architectural",
+    "prerequisites": []
+  },
+  {
+    "name": "Interior & Finishes",
+    "prerequisites": []
+  },
+  {
+    "name": "Finalization & Estimates",
+    "prerequisites": ["Architectural", "Interior & Finishes"]
+  }
+]
