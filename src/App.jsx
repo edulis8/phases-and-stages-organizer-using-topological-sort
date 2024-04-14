@@ -1,75 +1,17 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { processFiles } from './utils/processFiles';
+import { validateFiles, validateJson } from './utils/errorHandler';
 import './App.css';
 
-// Create a file upload component that allows users to upload multiple JSON files.
-// Parse the uploaded JSON files and store the data in the application's state.
-// Implement a function to organize the phases and stages based on the prerequisites. This function should handle circular dependencies and undefined prerequisites.
-// Implement error handling for malformed JSON files, duplicated names within a phase/stage file, and missing files.
-// Display the organized phases and stages in the user interface in the specified format.
-const REQUIRED_FILE = 'phases.json';
-
-// NEXT TODO: p89987hJson file that is malformed (missing } or ', extra ,
 function App() {
   const [files, setFiles] = useState([]);
   const [projectLifecycle, setProjectLifecycle] = useState([]);
   const [errors, setErrors] = useState([]);
 
-  function validateFiles(fileData) {
-    const fileNames = fileData.map((file) => file.fileName);
-    if (!fileNames.includes(REQUIRED_FILE)) {
-      throw new Error("A file named 'phases.json' is required.");
-    }
-
-    const phasesFile = fileData.find((file) => file.fileName === REQUIRED_FILE);
-    const phaseNames = phasesFile.contents.map((phase) =>
-      phase.name.toLowerCase(),
-    );
-
-    phaseNames.forEach((phaseName) => {
-      if (!fileNames.includes(`${phaseName}.json`)) {
-        throw new Error(`A file named '${phaseName}.json' is required.`);
-      }
-    });
-
-    fileData.forEach((file) => {
-      const names = file.contents.map((item) => item.name);
-      const hasDuplicates = new Set(names).size !== names.length;
-
-      if (hasDuplicates) {
-        throw new Error(
-          `Duplicate phase or stage names are not allowed. Check file: ${file.fileName}`,
-        );
-      }
-      if (
-        !file.contents.every(
-          (item) =>
-            Array.isArray(item.prerequisites) &&
-            item.prerequisites.every((prereq) => typeof prereq === 'string'),
-        )
-      ) {
-        throw new Error(
-          `Prerequisites must be defined and must be an array of strings. Check file: ${file.fileName}`,
-        );
-      }
-
-      file.contents.forEach((item) => {
-        item.prerequisites.forEach((prereq) => {
-          if (!names.includes(prereq)) {
-            throw new Error(
-              `A listed prerequisite is not included as a high-level stage/phase. Check file: ${file.fileName}`,
-            );
-          }
-        });
-      });
-    });
-  }
-
   function handleFileUpload(event) {
     setErrors([]);
     setProjectLifecycle([]);
     const uploadedFiles = [...event.target.files];
-    console.log(event.target.files);
 
     const filePromises = uploadedFiles.map(
       (file) =>
@@ -77,22 +19,18 @@ function App() {
           const reader = new FileReader();
           reader.onload = (e) => {
             let contents;
-
             try {
-              contents = JSON.parse(e.target.result);
+              contents = validateJson(file.name, e.target.result);
             } catch (error) {
-              reject(
-                new Error(
-                  `Malformed JSON in file: ${file.name}, error: ${error.message}`,
-                ),
-              );
+              reject(error);
             }
+            let displayName = file.name.replace(/\.[^/.]+$/, '');
+            displayName =
+              displayName.charAt(0).toUpperCase() + displayName.slice(1);
 
-            console.log('reader onload', file.name);
-            const [fileName] = file.name.split('.');
             resolve({
               fileName: file.name,
-              displayName: fileName.charAt(0).toUpperCase() + fileName.slice(1),
+              displayName,
               contents,
             });
           };
@@ -103,13 +41,11 @@ function App() {
 
     Promise.all(filePromises)
       .then((fileData) => {
-        setFiles(fileData);
-        console.log('hi', fileData);
         validateFiles(fileData);
+        setFiles(fileData);
         setProjectLifecycle(processFiles(fileData));
       })
       .catch((err) => {
-        console.error('Promise.all err---', err);
         setErrors([err.message]);
       });
   }
@@ -118,7 +54,7 @@ function App() {
     <main>
       <h1>Cottage 🏠</h1>
       <FileUpload onFileUpload={handleFileUpload} files={files} />
-      <section className="errors">
+      <section className="errors" aria-live="polite">
         {errors.length
           ? errors.map((errMsg) => (
               <pre key={errMsg} className="error">
@@ -127,7 +63,11 @@ function App() {
             ))
           : null}
       </section>
-      <section hidden={!projectLifecycle.length} className="project-lifecycle">
+      <section
+        hidden={!projectLifecycle.length}
+        className="project-lifecycle"
+        aria-live="polite"
+      >
         <pre>{projectLifecycle}</pre>
       </section>
     </main>
@@ -137,18 +77,42 @@ function App() {
 export default App;
 
 function FileUpload({ files, onFileUpload }) {
+  const fileInputRef = useRef();
+
+  function handleKeyDown(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      fileInputRef.current.click();
+    }
+  }
+
   return (
     <main>
-      <section className="file-upload">
+      <section>
+        <h3>Upload your phases and stages files</h3>
+        <button
+          type="button"
+          className="custom-file-upload"
+          onKeyDown={handleKeyDown}
+        >
+          <label htmlFor="file-upload">Choose Files</label>
+        </button>
+        {/* The input element below is hidden via CSS and replaced with the custom-file-upload button above to hide its default 'No file chosen' message which will always be displayed because of the event.target.value reset */}
         <input
+          id="file-upload"
           type="file"
           multiple
+          ref={fileInputRef}
           onChange={(event) => {
             onFileUpload(event);
-            event.target.value = null; // Reset the value in case user corrected an error and re-uploaded the same files
+            // Reset the value in case user wants to re-upload the same files.
+            event.target.value = null;
           }}
         />
-        {files.length > 0 && <p>{files.length} files uploaded</p>}
+        {files.length > 0 ? (
+          <p>{files.length} files uploaded</p>
+        ) : (
+          <p>No files chosen</p>
+        )}
       </section>
     </main>
   );

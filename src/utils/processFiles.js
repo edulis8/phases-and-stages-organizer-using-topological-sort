@@ -1,111 +1,93 @@
-import { formatErrors } from './formatErrors';
+export const topologicalSort = function (name, adjacencyMap) {
+  const timestamp = 0;
+  const visited = new Set();
+  const departures = new Map();
+  const result = [];
+
+  function dfs(node) {
+    visited.add(node);
+
+    for (const neighbor of adjacencyMap.get(node) || []) {
+      if (!visited.has(neighbor)) {
+        dfs(neighbor);
+      } else if (!departures.has(neighbor)) {
+        // If the DFS encounters a node that has been visited but not yet marked as departed,
+        // it means that there's a cycle in the graph. This is because we've returned to a node before
+        // we've finished visiting all its descendants, which is only possible if the graph contains a cycle.
+        throw new Error('Cycle found');
+      }
+    }
+    result.push(node);
+    departures.set(node, timestamp + 1);
+  }
+
+  for (const node of [...adjacencyMap.keys()]) {
+    if (!visited.has(node)) {
+      try {
+        dfs(node);
+      } catch (error) {
+        throw new Error(`Circular dependency found in ${name}`);
+      }
+    }
+  }
+
+  return result;
+};
 
 export const processFiles = function (files) {
   if (!files || !files.length) {
     return [];
   }
-  const errors = [];
-  // todo refactor to take adjacency list as input
-  // todo refactor to use topsort algo from IK
-  function topologicalSort(name, nodes, edges) {
-    // nodes are adjacency list keys
-    // edges are adjacency list values
-    console.log({ nodes, edges });
-    const visited = new Array(nodes.length).fill(0); // TODO make this a set
-    const result = [];
 
-    function dfs(node) {
-      if (visited[node] === -1) {
-        // cycle detected
-        errors.push({
-          name,
-          message: `check for problem involving: ${node}`,
-        });
-        return false;
-      }
-      if (visited[node] === 1) return true; // already visited
+  const fileContentsMap = new Map();
+  const fileDisplayNameToFileNameMap = new Map();
+  files.forEach((file) => {
+    fileContentsMap.set(file.displayName, file.contents);
+    fileDisplayNameToFileNameMap.set(file.displayName, file.fileName);
+  });
 
-      visited[node] = -1; // mark as being visited
-
-      for (const neighbor of edges[node] || []) {
-        if (!dfs(neighbor)) return false;
-      }
-
-      visited[node] = 1; // mark as visited
-      result.push(node);
-
-      return true;
-    }
-
-    for (const node of nodes) {
-      if (!dfs(node)) {
-        console.error('DEBUG: CYCLE DETECTED', { node }, { errors });
-        if (errors.length > 0) {
-          throw new Error(formatErrors(errors));
-        }
-      }
-    }
-
-    console.log('result topsort', result.reverse());
-    return result.reverse();
-  }
-
-  const fileMap = new Map();
-  files.forEach((file) => fileMap.set(file.displayName, file.contents));
-
-  // Create an adjacency map for phases to model it as a graph
+  // Create an adjacency map for phases to model it as a graph. Nodes will be phase names and edges will be prerequisites.
   const phaseAdjacencyMap = new Map();
-  fileMap
+
+  fileContentsMap
     .get('Phases')
     .forEach((phase) => phaseAdjacencyMap.set(phase.name, phase.prerequisites));
 
-  // TODOO make ajacency maps for each phase
-  const graphs = {};
-  [...fileMap.keys()].forEach((fileName) => {
-    if (fileName !== 'Phases') {
-      const phaseName = fileName;
-      const graph = {};
-      fileMap
-        .get(fileName)
-        .forEach((stage) => (graph[stage.name] = stage.prerequisites));
-      graphs[phaseName] = graph;
+  const orderedPhases = topologicalSort('phases.json', phaseAdjacencyMap);
+
+  const stageAdjacencyMaps = new Map();
+  [...fileContentsMap.keys()].forEach((stageName) => {
+    if (stageName !== 'Phases') {
+      const stageAdjacencyMap = new Map();
+      fileContentsMap
+        .get(stageName)
+        .forEach((stage) =>
+          stageAdjacencyMap.set(stage.name, stage.prerequisites),
+        );
+
+      stageAdjacencyMaps.set(stageName, stageAdjacencyMap);
     }
   });
 
-  console.log({ phaseGraph: phaseAdjacencyMap });
-  // Perform topological sort on phase graph
-  const orderedPhases = topologicalSort('Phases', phaseAdjacencyMap);
-  // returns:
-  // [
-  //   "Feasibility",
-  //   "Design",
-  //   "Permitting",
-  //   "Construction",
-  // ]
-
-  // Perform topological sort on each graph
-  const orderedStages = {};
-  Object.keys(graphs).forEach((phaseName) => {
-    orderedStages[phaseName] = topologicalSort(
-      phaseName,
-      Object.keys(graphs[phaseName]),
-      graphs[phaseName],
+  const orderedStages = new Map();
+  [...stageAdjacencyMaps.keys()].forEach((phaseName) => {
+    const orderedStage = topologicalSort(
+      fileDisplayNameToFileNameMap.get(phaseName),
+      stageAdjacencyMaps.get(phaseName),
     );
+    orderedStages.set(phaseName, orderedStage);
   });
 
-  console.log({ orderedPhases, orderedStages });
-
-  // Combine ordered phases and stages
+  // Combine ordered phases and stages with their respective numbers in the project lifecycle
   const output = orderedPhases
     .map(
       (phase, i) =>
-        `${i + 1} ${phase}\n${orderedStages[phase]
+        `${i + 1} ${phase}\n${orderedStages
+          .get(phase)
           .map((stage, j) => `${i + 1}.${j + 1} ${stage}`)
           .join('\n')}`,
     )
     .join('\n');
-
-  console.log('OUTPUT', output);
 
   return output;
 };
