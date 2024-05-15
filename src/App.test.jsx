@@ -9,7 +9,7 @@ test('Example test', () => {
   expect(result).toBe(3);
 });
 
-test('renders Cottage text', () => {
+test('renders Phases text', () => {
   const { container } = render(<App />);
-  expect(container.textContent).toMatch(/Cottage/);
+  expect(container.textContent).toMatch(/Phases/);
 });

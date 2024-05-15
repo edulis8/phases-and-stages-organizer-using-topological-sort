@@ -52,7 +52,7 @@ function App() {
 
   return (
     <main>
-      <h1>Cottage 🏠</h1>
+      <h1>Organizer for Phases and Stages of a Project</h1>
       <FileUpload onFileUpload={handleFileUpload} files={files} />
       <section className="errors" aria-live="polite">
         {errors.length
